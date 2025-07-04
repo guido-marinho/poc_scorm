@@ -12,7 +12,8 @@ func SetupRouter() *gin.Engine {
 
 	// rota get para teste
 	// define q c é ponteiro para o context (req + res do express)
-	r.GET("/ping", scorm.Ping)
+	r.GET("/ping", scorm.PingHandler)
+	r.POST("/upload", scorm.UploadHandler)
 
 	return r
 }
