@@ -39,14 +39,19 @@ make dev
 📂 Upload de Pacote SCORM
 
 - **POST /upload**
+
   -Descrição: Recebe um arquivo .zip SCORM.
+
   -Como usar: Envie via form-data ➜ file = [testzip.zip].
 
 🎮 Servir o Player SCORM
 
 - **GET /packages/{package}/index.html**
+
   -Exemplo: /packages/testzip/index.html
+
   -Descrição: Serve o HTML principal do curso SCORM.
+
   -Observação: O scorm-api.js e demais arquivos (imagens, CSS) são servidos automaticamente pela mesma estrutura /packages/{package}/....
 
 📑 Tracking de Progresso
@@ -64,27 +69,37 @@ make dev
     "score": 100
   }
   ```
+
   -Descrição: Registra o progresso do aluno, SCO por SCO.
 
 📊 Consulta de Progresso
 
 - **GET /progress/{userId}**
+
   -Descrição: Lista todo o progresso de um usuário.
 
 -**GET /progress/{userId}/csv**
+
   -Descrição: Exporta o progresso em CSV.
 
 - **GET /progress/{userId}/pdf**
+
   -Descrição: Exporta o progresso em PDF. (⚠️ Para acentuação correta, use fonte TTF no futuro)
 
 📚 Gerenciamento de Cursos
 
 - **GET /courses**
+
   -Descrição: Lista todos os cursos cadastrados (metadados do imsmanifest.xml).
 
 - **DELETE /courses/{id}**
+
   -Descrição: Remove um curso específico:
+
   -Exclui metadados do banco (courses).
+
   -Exclui tracking relacionado (progress).
+
   -Exclui os arquivos físicos na pasta storage/.
+
 
