@@ -6,9 +6,10 @@
 
 ## ✅ Como rodar
 
-```bash
 # Clonar o repositório
+```bash
 git clone git@github.com:guido-marinho/poc_scorm.git
+```
 cd poc_scorm
 
 # Instalar dependências Go
@@ -45,7 +46,7 @@ POST /track
 
 Body JSON:
 
-json
+```json
 {
   "userId": 1,
   "scormId": "curso-exemplo",
@@ -53,6 +54,8 @@ json
   "status": "completed",
   "score": 100
 }
+```
+
 Descrição: Registra o progresso do aluno, SCO por SCO.
 
 📊 Consulta de Progresso
