@@ -15,7 +15,6 @@ func SetupRouter() *gin.Engine {
 	r.Static("/packages", "./storage/")
 
 	SetupScormRoutes(r)
-	SetupCourseRoutes(r)
 
 	return r
 }
