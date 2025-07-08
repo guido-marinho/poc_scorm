@@ -6,6 +6,10 @@ install:
 dev:
 	air
 
+# 🏃 Roda o servidor sem hot reload
+run:
+	go run cmd/server/main.go
+
 # 🔨 Compila o projeto para produção (cria binário em ./bin/app)
 build:
 	go build -o bin/app main.go
