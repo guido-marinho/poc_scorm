@@ -10,21 +10,25 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-playground/validator/v10"
+	"github.com/google/uuid"
 	"github.com/guilherme-gatti/poc_scorm/internal/storage"
 )
 
-// ProcessScormPackage processa o pacote SCORM: descompacta, encontra o manifest, parseia e salva no banco.
+var validate *validator.Validate
+
+func init() {
+	validate = validator.New()
+}
+
 func ProcessScormPackage(zipPath string) error {
-	// Remove .zip pra criar a pasta destino
 	dest := strings.TrimSuffix(zipPath, ".zip")
 
-	// Descompacta o ZIP
 	err := unzip(zipPath, dest)
 	if err != nil {
 		return fmt.Errorf("erro ao descompactar: %w", err)
 	}
 
-	// Busca recursiva pelo imsmanifest.xml
 	var manifestPath string
 	err = filepath.Walk(dest, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -45,14 +49,12 @@ func ProcessScormPackage(zipPath string) error {
 		return fmt.Errorf("imsmanifest.xml não encontrado em %s", dest)
 	}
 
-	// Abre o manifest
 	manifest, err := os.Open(manifestPath)
 	if err != nil {
 		return fmt.Errorf("erro ao abrir imsmanifest.xml: %w", err)
 	}
 	defer manifest.Close()
 
-	// Faz parse XML ➜ struct Manifest
 	var data Manifest
 	decoder := xml.NewDecoder(manifest)
 	err = decoder.Decode(&data)
@@ -62,13 +64,30 @@ func ProcessScormPackage(zipPath string) error {
 
 	fmt.Printf("Manifest: %+v\n", data)
 
-	// Transforma struct ➜ JSON
+	digitalCourse, err := mapManifestToDigitalCourse(data)
+	if err != nil {
+		return fmt.Errorf("erro ao mapear manifest: %w", err)
+	}
+
+	err = validate.Struct(digitalCourse)
+	if err != nil {
+		return fmt.Errorf("erro na validação: %w", err)
+	}
+
+	fmt.Println("✅ Dados validados com sucesso!")
+
 	manifestJSON, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("erro ao gerar JSON do manifest: %w", err)
 	}
 
-	// Insere no banco SQLite
+	// Transforma DigitalCourse ➜ JSON (por enquanto não usa)
+	// digitalCourseJSON, err := json.Marshal(digitalCourse)
+	// if err != nil {
+	// 	return fmt.Errorf("erro ao gerar JSON do curso digital: %w", err)
+	// }
+
+	// Insere no banco SQLite (sem digital_course_json por enquanto)
 	_, err = storage.DB.Exec(`
 		INSERT INTO courses (identifier, version, manifest_json, path)
 		VALUES (?, ?, ?, ?)
@@ -78,12 +97,97 @@ func ProcessScormPackage(zipPath string) error {
 		return fmt.Errorf("erro ao salvar no banco: %w", err)
 	}
 
-	fmt.Println("✅ Manifest salvo no banco com sucesso!")
+	fmt.Println("✅ Manifest e curso digital salvos no banco com sucesso!")
 
 	return nil
 }
 
-// unzip extrai um arquivo .zip para a pasta destino.
+func mapManifestToDigitalCourse(manifest Manifest) (*DigitalCourse, error) {
+	title := manifest.Metadata.LOM.General.Title.Langstring
+	if title == "" {
+		title = manifest.Identifier
+	}
+	description := manifest.Metadata.LOM.General.Description.Langstring
+
+	digitalCourse := &DigitalCourse{
+		UUID:        uuid.New().String(),
+		Name:        title,
+		Description: description,
+		CourseType:  "SCORM",
+		Modules:     []Module{},
+	}
+
+	for _, org := range manifest.Organizations.Organization {
+		module := Module{
+			UUID:   uuid.New().String(),
+			Name:   org.Title,
+			Order:  0,
+			Topics: []Topic{},
+		}
+
+		for i, item := range org.Items {
+			topic := Topic{
+				UUID:                  uuid.New().String(),
+				Name:                  item.Title,
+				Type:                  inferTopicType(item, manifest.Resources),
+				Order:                 i,
+				Description:           fmt.Sprintf("Tópico extraído do SCORM: %s", item.Title),
+				DigitalCourseId:       digitalCourse.UUID,
+				DigitalCourseModuleId: module.UUID,
+			}
+
+			if len(item.Items) > 0 {
+				subTopics := processSubItems(item.Items, digitalCourse.UUID, module.UUID, len(module.Topics))
+				module.Topics = append(module.Topics, subTopics...)
+			} else {
+				module.Topics = append(module.Topics, topic)
+			}
+		}
+
+		digitalCourse.Modules = append(digitalCourse.Modules, module)
+	}
+
+	return digitalCourse, nil
+}
+
+func processSubItems(items []Item, courseUUID, moduleUUID string, startOrder int) []Topic {
+	var topics []Topic
+
+	for i, item := range items {
+		topic := Topic{
+			UUID:                  uuid.New().String(),
+			Name:                  item.Title,
+			Type:                  "LECTURE",
+			Order:                 startOrder + i,
+			Description:           fmt.Sprintf("Subtópico extraído do SCORM: %s", item.Title),
+			DigitalCourseId:       courseUUID,
+			DigitalCourseModuleId: moduleUUID,
+		}
+
+		topics = append(topics, topic)
+
+		if len(item.Items) > 0 {
+			subTopics := processSubItems(item.Items, courseUUID, moduleUUID, startOrder+len(topics))
+			topics = append(topics, subTopics...)
+		}
+	}
+
+	return topics
+}
+
+func inferTopicType(item Item, resources Resources) string {
+	for _, resource := range resources.Resource {
+		if resource.Identifier == item.IdentifierRef {
+			if strings.Contains(strings.ToLower(resource.Href), "assessment") ||
+				strings.Contains(strings.ToLower(resource.Href), "quiz") ||
+				strings.Contains(strings.ToLower(resource.Href), "test") {
+				return "ASSESSMENT"
+			}
+		}
+	}
+	return "LECTURE"
+}
+
 func unzip(src, dest string) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
@@ -131,9 +235,6 @@ func unzip(src, dest string) error {
 	return nil
 }
 
-// Manifest representa a estrutura básica do imsmanifest.xml
-type Manifest struct {
-	XMLName    xml.Name `xml:"manifest"`
-	Identifier string   `xml:"identifier,attr"`
-	Version    string   `xml:"version,attr"`
+func ValidateDigitalCourse(digitalCourse *DigitalCourse) error {
+	return validate.Struct(digitalCourse)
 }

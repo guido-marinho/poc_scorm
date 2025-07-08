@@ -2,8 +2,10 @@ package scorm
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/jung-kurt/gofpdf"
 
@@ -48,6 +50,210 @@ func UploadHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status": "uploaded and processed",
 	})
+}
+
+// GetCourseValidatedHandler retorna os dados validados do curso (validação em tempo real)
+func GetCourseValidatedHandler(c *gin.Context) {
+	courseID := c.Param("id")
+
+	var manifestJSON string
+	var identifier string
+	err := storage.DB.QueryRow(`
+		SELECT identifier, manifest_json
+		FROM courses 
+		WHERE id = ?
+	`, courseID).Scan(&identifier, &manifestJSON)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Curso não encontrado",
+		})
+		return
+	}
+
+	// Decodifica o manifest
+	var manifest Manifest
+	err = json.Unmarshal([]byte(manifestJSON), &manifest)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Erro ao decodificar manifest",
+		})
+		return
+	}
+
+	// Mapeia para estrutura de validação
+	digitalCourse, err := mapManifestToDigitalCourse(manifest)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Erro ao mapear dados: %v", err),
+		})
+		return
+	}
+
+	// Valida os dados
+	err = ValidateDigitalCourse(digitalCourse)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("Erro na validação: %v", err),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"identifier":   identifier,
+		"data":         digitalCourse,
+		"validation":   "success",
+		"generated_at": "real-time",
+	})
+}
+
+// ListCoursesHandler lista todos os cursos
+func ListCoursesHandler(c *gin.Context) {
+	// Query simples sem a coluna digital_course_json por enquanto
+	rows, err := storage.DB.Query(`
+		SELECT id, identifier, version, path
+		FROM courses
+	`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Erro ao listar cursos",
+		})
+		return
+	}
+	defer rows.Close()
+
+	var courses []gin.H
+	for rows.Next() {
+		var id int
+		var identifier, version, path string
+
+		err := rows.Scan(&id, &identifier, &version, &path)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Erro ao processar dados",
+			})
+			return
+		}
+
+		courses = append(courses, gin.H{
+			"id":                 id,
+			"identifier":         identifier,
+			"version":            version,
+			"path":               path,
+			"has_validated_data": false, // Por enquanto sempre false
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"courses": courses,
+	})
+}
+
+// ValidateExistingCourseHandler valida um curso existente
+func ValidateExistingCourseHandler(c *gin.Context) {
+	courseID := c.Param("id")
+
+	var manifestJSON, path string
+	err := storage.DB.QueryRow(`
+		SELECT manifest_json, path 
+		FROM courses 
+		WHERE id = ?
+	`, courseID).Scan(&manifestJSON, &path)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Curso não encontrado",
+		})
+		return
+	}
+
+	// Decodifica o manifest
+	var manifest Manifest
+	err = json.Unmarshal([]byte(manifestJSON), &manifest)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Erro ao decodificar manifest",
+		})
+		return
+	}
+
+	// Mapeia para estrutura de validação
+	digitalCourse, err := mapManifestToDigitalCourse(manifest)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": fmt.Sprintf("Erro ao mapear dados: %v", err),
+		})
+		return
+	}
+
+	// Valida os dados
+	err = ValidateDigitalCourse(digitalCourse)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("Erro na validação: %v", err),
+		})
+		return
+	}
+
+	// Converte para JSON (por enquanto não usa)
+	// digitalCourseJSON, err := json.Marshal(digitalCourse)
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{
+	// 		"error": "Erro ao converter para JSON",
+	// 	})
+	// 	return
+	// }
+
+	// Por enquanto não salva no banco (coluna digital_course_json não existe)
+	// _, err = storage.DB.Exec(`
+	// 	UPDATE courses
+	// 	SET digital_course_json = ?
+	// 	WHERE id = ?
+	// `, digitalCourseJSON, courseID)
+
+	// if err != nil {
+	// 	c.JSON(http.StatusInternalServerError, gin.H{
+	// 		"error": "Erro ao salvar dados validados",
+	// 	})
+	// 	return
+	// }
+
+	c.JSON(http.StatusOK, gin.H{
+		"status": "Validação concluída com sucesso",
+		"data":   digitalCourse,
+	})
+}
+
+// DeleteCourseHandler remove um curso específico
+func DeleteCourseHandler(c *gin.Context) {
+	courseID := c.Param("id")
+
+	var path string
+	err := storage.DB.QueryRow(`SELECT path FROM courses WHERE id = ?`, courseID).Scan(&path)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Curso não encontrado"})
+		return
+	}
+
+	_, err = storage.DB.Exec(`DELETE FROM progress WHERE course_id = ?`, courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao remover progressos"})
+		return
+	}
+
+	_, err = storage.DB.Exec(`DELETE FROM courses WHERE id = ?`, courseID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao remover curso"})
+		return
+	}
+
+	err = os.RemoveAll(path)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Erro ao remover arquivos"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "Curso removido"})
 }
 
 // TrackHandler recebe tracking SCORM multi-SCO
