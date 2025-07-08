@@ -4,7 +4,8 @@ CREATE TABLE IF NOT EXISTS courses (
   identifier TEXT NOT NULL,
   version TEXT NOT NULL,
   manifest_json TEXT NOT NULL,
-  path TEXT NOT NULL
+  path TEXT NOT NULL,
+  digital_course_json TEXT
 );
 
 -- Cria tabela de progresso
