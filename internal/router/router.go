@@ -1,7 +1,7 @@
 package router
 
 import (
-	"github.com/guilherme-gatti/poc_scorm/internal/scorm"
+	scorm "github.com/guilherme-gatti/poc_scorm/internal/scormpackage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,7 +14,8 @@ func SetupRouter() *gin.Engine {
 	// rota para servir o index.html do pacote SCORM
 	r.Static("/packages", "./storage/")
 
-	SetupScormRoutes(r)
+	SetupScormPackageRoutes(r)
+	SetupScormrtRoutes(r)
 
 	return r
 }

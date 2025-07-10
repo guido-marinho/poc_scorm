@@ -2,10 +2,10 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/guilherme-gatti/poc_scorm/internal/scorm"
+	scorm "github.com/guilherme-gatti/poc_scorm/internal/scormpackage"
 )
 
-func SetupScormRoutes(r *gin.Engine) {
+func SetupScormPackageRoutes(r *gin.Engine) {
 
 	r.GET("/progress/:userId", scorm.ProgressHandler)
 	r.POST("/track", scorm.TrackHandler)
