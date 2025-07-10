@@ -3,6 +3,7 @@ package router
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/guilherme-gatti/poc_scorm/internal/scorm"
+	"github.com/guilherme-gatti/poc_scorm/internal/scormrt"
 )
 
 func SetupScormRoutes(r *gin.Engine) {
@@ -18,4 +19,7 @@ func SetupScormRoutes(r *gin.Engine) {
 	r.GET("/courses/:id/view", scorm.GetCourseValidatedHandler)
 	r.POST("/courses/:id/validate", scorm.ValidateExistingCourseHandler)
 	r.DELETE("/courses/:id", scorm.DeleteCourseHandler)
+
+	// Runtime endpoint to communicate with external LMS
+	r.POST("/runtime", scormrt.RuntimeHandler)
 }
